@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pth
+models/
+.DS_Store
+best_option1.pth
+best_option2.pth
+best_binary_tmp.pth
+best_binary_focal.pth
+data/images/
+data/masks/
