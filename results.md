@@ -192,16 +192,72 @@ Early stopping at epoch 32
 
 ---
 
+## Section 8 — Physical-Scale Preprocessing (등방 리샘플 + 중심 크롭)
+
+### 문제 인식 (Section 6/7 한계)
+
+Section 6/7의 전처리 흐름:
+```
+PixelSpacing 기반 픽셀 margin 계산 → bbox 크롭 → T.Resize(128×128) 강제 리사이즈
+```
+- `sh ≠ sw`이면 종횡비(aspect ratio) 왜곡 상태로 학습
+- 환자마다 1픽셀이 나타내는 실제 물리 거리가 다름 → 모델이 스케일 불변성 없이 학습
+
+### 설정
+
+| 항목 | 내용 |
+|------|------|
+| **타겟** | Disc Bulging (Section 6/7과 동일) |
+| **샘플 단위** | 디스크 1개 = 샘플 1개 |
+| **데이터** | Section 6/7과 동일 split (Train 876 / Val 186 / Test 192) |
+| **입력 파이프라인** | ① 중앙 시상면 슬라이스 추출 → ② `scipy.ndimage.zoom`으로 **TARGET_SP = 0.75 mm/px** 등방 리샘플 → ③ 디스크 중심 기준 **128×128 중심 크롭 + 제로패딩(검정)** |
+| **물리적 시야** | 128px × 0.75mm = **96mm × 96mm** 고정 (디스크 ~15mm + 여백 40mm × 2 ≈ 95mm) |
+| **레이블** | Section 6/7과 동일 |
+| **모델** | SpiderDiscCNN (동일 아키텍처) |
+| **손실함수** | BCEWithLogitsLoss |
+| **옵티마이저** | Adam lr=1e-4, Early Stopping patience=10 |
+| **정규화·증강** | 없음 (전처리 효과만 단독 측정) |
+
+### Section 6 vs Section 8 전처리 비교
+
+| 항목 | Section 6 | Section 8 |
+|------|-----------|-----------|
+| 스케일 통일 | ✗ (환자마다 다름) | ✅ 0.75mm/px 등방 |
+| 종횡비 | 왜곡 (T.Resize) | ✅ 정확 (중심 크롭) |
+| 패딩 | 없음 | 제로패딩(검정) |
+| 출력 크기 | 128×128 | 128×128 |
+
+### 학습 로그
+
+```
+(학습 후 업데이트)
+```
+
+### 결과
+
+| Split | Accuracy | Precision | Recall | F1 |
+|-------|----------|-----------|--------|----|
+| **Val** | — | — | — | — |
+| **Test** | — | — | — | — |
+
+### 분석
+
+(학습 후 업데이트)
+
+---
+
 ## 종합 비교
 
 | Section | 타겟 | 입력 | 정규화 | 증강 | 손실함수 | Test F1 |
 |---------|------|------|--------|------|----------|---------|
 | **4** | Herniation (6-label) | 전척추 224×224 | ✗ | ✗ | BCE | 0.0000 ❌ |
 | **5** | Herniation (binary) | 디스크 크롭 128×128 | ✗ | ✗ | Focal Loss | 0.0000 ❌ |
-| **6** | **Bulging** (binary) | 디스크 크롭 128×128 | ✗ | ✗ | BCE | 0.7885 ✅ |
-| **7** | **Bulging** (binary) | 디스크 크롭 128×128 | Z-score | Flip+Rot | BCE | **0.8186** ✅ |
+| **6** | **Bulging** (binary) | bbox 크롭 → Resize 128×128 | ✗ | ✗ | BCE | 0.7885 ✅ |
+| **7** | **Bulging** (binary) | bbox 크롭 → Resize 128×128 | Z-score | Flip+Rot | BCE | **0.8186** ✅ |
+| **8** | **Bulging** (binary) | 등방 리샘플 → 중심 크롭 128×128 | ✗ | ✗ | BCE | — (학습 후) |
 
 **핵심 관찰**
 1. Herniation(~5%)은 현재 규모에서 학습 자체가 불가 — 클래스 불균형이 결정적
 2. 디스크 크롭(Section 5→6)은 타겟이 맞으면 효과적인 전처리
 3. Z-score + 증강(Section 7)은 특히 Recall을 개선하며 일반화 성능을 높임
+4. Section 8은 물리적 스케일 통일이 성능에 미치는 영향을 측정 — 정규화·증강 없이 전처리만으로 비교
