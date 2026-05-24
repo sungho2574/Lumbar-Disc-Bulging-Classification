@@ -1,0 +1,17 @@
+About Dataset
+This is a large publicly available multi-center lumbar spine MRI dataset with reference segmentations of vertebrae, intervertebral discs (IVDs), and spinal canal. The dataset includes 447 sagittal T1 and T2 MRI series from 218 studies of 218 patients with a history of low back pain. The data was collected from four different hospitals.
+
+Which MRI studies are assigned to the training and validation sets can be found in the overview file. This file also provides the biological sex for all patients and the age for the patients for whom this was available. It also includes a number of scanner and acquisition parameters for each individual MRI study.
+
+The dataset also comes with radiological gradings found in a separate file for the following degenerative changes:
+1.    Modic changes (type I, II, or III)
+2.    Upper and lower endplate changes / Schmorl nodes (binary)
+3.    Spondylolisthesis (binary)
+4.    Disc herniation (binary)
+5.    Disc narrowing (binary)
+6.    Disc bulging (binary)
+7.    Pfirrman grade (grade 1 to 5). 
+
+All radiological gradings are provided per IVD level.
+ 
+The reference segmentations in this dataset are labeled from the bottom up. In this labeling scheme, the lowest lumbar vertebra, which is usually L5 but can also be L4 or L6, is assigned the label 1. The subsequent vertebra above it is labeled as 2, and the labeling continues in ascending order for the rest of the vertebrae in the series. For labeling the intervertebral discs (IVDs), the label is based on the vertebra immediately above it, with the lowest IVD assigned the label 201, the one above it labeled as 202, and so on. The spinal canal is assigned the label 100.
