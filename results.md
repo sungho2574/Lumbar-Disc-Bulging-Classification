@@ -230,19 +230,37 @@ PixelSpacing 기반 픽셀 margin 계산 → bbox 크롭 → T.Resize(128×128) 
 ### 학습 로그
 
 ```
-(학습 후 업데이트)
+Epoch   1: train=0.6861  val=0.5409
+Epoch   5: train=0.3662  val=0.4599
+Epoch  10: train=0.2329  val=0.4629
+Epoch  15: train=0.1953  val=0.4604
+Early stopping at epoch 18
 ```
 
 ### 결과
 
 | Split | Accuracy | Precision | Recall | F1 |
 |-------|----------|-----------|--------|----|
-| **Val** | — | — | — | — |
-| **Test** | — | — | — | — |
+| **Val** | 0.7903 | 0.8018 | 0.8396 | 0.8203 |
+| **Test** | 0.7656 | 0.7207 | 0.8511 | **0.7805** |
+
+### Section 6 대비 변화량
+
+| 지표 | Val Δ | Test Δ |
+|------|-------|--------|
+| Accuracy | −0.0162 | −0.0052 |
+| Precision | −0.0164 | +0.0014 |
+| Recall | −0.0095 | −0.0212 |
+| F1 | −0.0130 | −0.0080 |
 
 ### 분석
 
-(학습 후 업데이트)
+- Early stopping이 epoch 18로 Section 6(15)보다 소폭 연장 — 물리적 스케일 통일로 학습 신호가 다소 안정화
+- Val F1 0.8203으로 Section 6(0.8333) 대비 소폭 하락, Section 7(0.8430)보다도 낮음
+- Test F1 0.7805로 Section 6(0.7885) 대비 소폭 하락
+- 등방 리샘플만으로는 성능이 뚜렷하게 오르지 않음 — 정규화·증강 없이 전처리만 바꾼 효과는 제한적
+- Recall은 Val/Test 모두 0.83~0.85 수준으로 비교적 양호하게 유지
+- 참고: PixelSpacing 분포 — sh 중앙값 0.624mm, sw 중앙값 0.625mm로 대부분 등방에 가까우며 비등방 환자는 9명(P58 ratio=0.105 등). 데이터셋 자체가 심각하게 비등방인 케이스가 적어 리샘플 효과가 제한적이었을 가능성 있음
 
 ---
 
@@ -254,10 +272,10 @@ PixelSpacing 기반 픽셀 margin 계산 → bbox 크롭 → T.Resize(128×128) 
 | **5** | Herniation (binary) | 디스크 크롭 128×128 | ✗ | ✗ | Focal Loss | 0.0000 ❌ |
 | **6** | **Bulging** (binary) | bbox 크롭 → Resize 128×128 | ✗ | ✗ | BCE | 0.7885 ✅ |
 | **7** | **Bulging** (binary) | bbox 크롭 → Resize 128×128 | Z-score | Flip+Rot | BCE | **0.8186** ✅ |
-| **8** | **Bulging** (binary) | 등방 리샘플 → 중심 크롭 128×128 | ✗ | ✗ | BCE | — (학습 후) |
+| **8** | **Bulging** (binary) | 등방 리샘플 → 중심 크롭 128×128 | ✗ | ✗ | BCE | 0.7805 |
 
 **핵심 관찰**
 1. Herniation(~5%)은 현재 규모에서 학습 자체가 불가 — 클래스 불균형이 결정적
 2. 디스크 크롭(Section 5→6)은 타겟이 맞으면 효과적인 전처리
-3. Z-score + 증강(Section 7)은 특히 Recall을 개선하며 일반화 성능을 높임
-4. Section 8은 물리적 스케일 통일이 성능에 미치는 영향을 측정 — 정규화·증강 없이 전처리만으로 비교
+3. Z-score + 증강(Section 7)이 현재까지 최고 성능(Test F1 0.8186)
+4. Section 8 등방 리샘플은 정규화·증강 없이는 Section 6 대비 성능 개선 없음 — 데이터셋 대부분이 이미 등방(sh≈sw≈0.625mm)이어서 효과 제한적
