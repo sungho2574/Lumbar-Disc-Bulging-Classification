@@ -264,6 +264,66 @@ Early stopping at epoch 18
 
 ---
 
+## Section 9 — Multi-Slice 3-Channel Input (좌·중·우 시상면)
+
+### 문제 인식 (Section 6~8 한계)
+
+Section 6~8은 모두 중앙 시상면 슬라이스 **1장**만 사용.
+디스크 팽윤·탈출은 3D 현상으로 좌측/우측으로 편측 발생하는 경우가 흔해,
+중앙 슬라이스 하나로는 편측 병변을 놓칠 수 있다.
+
+### 설정
+
+| 항목 | 내용 |
+|------|------|
+| **타겟** | Disc Bulging (동일) |
+| **샘플 단위** | 디스크 1개 = 샘플 1개 |
+| **데이터** | 동일 split (Train 876 / Val 186 / Test 192) |
+| **슬라이스 선택** | 물리적 ±4mm 오프셋 — `offset = max(1, round(4.0 / through_sp))` → 대부분 ±1슬라이스 (through_sp 중앙값 3.3mm) |
+| **입력 파이프라인** | 좌·중·우 3장 각각 Section 8 전처리 (TARGET_SP=0.75mm/px, 128×128 중심 크롭) → **(3, 128, 128)** 스택 |
+| **디스크 중심** | 중앙 슬라이스 마스크 기준으로 계산, 3장 동일 좌표 크롭 |
+| **모델** | **SpiderDiscCNN3** — 첫 Conv2d만 1→3채널 변경, 나머지 동일 (파라미터 8,482,817) |
+| **손실함수** | BCEWithLogitsLoss |
+| **옵티마이저** | Adam lr=1e-4, Early Stopping patience=10 |
+| **정규화·증강** | 없음 |
+
+### 학습 로그
+
+```
+Epoch   1: train=0.7395  val=0.5438
+Epoch   5: train=0.4321  val=0.5204
+Epoch  10: train=0.2608  val=0.4599
+Epoch  15: train=0.1431  val=0.4849
+Early stopping at epoch 19
+```
+
+### 결과
+
+| Split | Accuracy | Precision | Recall | F1 |
+|-------|----------|-----------|--------|----|
+| **Val** | 0.7903 | 0.7769 | 0.8868 | 0.8282 |
+| **Test** | 0.7865 | 0.7431 | 0.8617 | **0.7980** |
+
+### Section 8 대비 변화량
+
+| 지표 | Val Δ | Test Δ |
+|------|-------|--------|
+| Accuracy | +0.0000 | +0.0209 ↑ |
+| Precision | −0.0249 | +0.0224 ↑ |
+| Recall | +0.0472 ↑ | +0.0106 ↑ |
+| F1 | +0.0079 | +0.0175 ↑ |
+
+### 분석
+
+- Early stopping epoch 19로 Section 8(18)과 유사 — 학습 안정성 비슷
+- **Test F1 0.7980** — Section 8(0.7805) 대비 +0.0175 개선, Section 6 베이스라인(0.7885)도 상회
+- **Recall이 특히 향상** (Val +4.7%, Test +1.1%) — 3채널 입력이 편측 병변 탐지에 도움을 준 것으로 해석
+- Precision은 Val에서 소폭 하락 — 탐지를 더 공격적으로 하며 False Positive 소폭 증가
+- 단, 최고 성능 Section 7(Test F1 0.8186)에는 미치지 못함 — 정규화·증강 없는 전처리 개선의 한계
+- 참고: 데이터셋 through-plane spacing 중앙값 3.3mm로, 대부분 환자는 실질적으로 ±1슬라이스(±3.3mm ≈ ±4mm) 추출
+
+---
+
 ## 종합 비교
 
 | Section | 타겟 | 입력 | 정규화 | 증강 | 손실함수 | Test F1 |
@@ -273,9 +333,11 @@ Early stopping at epoch 18
 | **6** | **Bulging** (binary) | bbox 크롭 → Resize 128×128 | ✗ | ✗ | BCE | 0.7885 ✅ |
 | **7** | **Bulging** (binary) | bbox 크롭 → Resize 128×128 | Z-score | Flip+Rot | BCE | **0.8186** ✅ |
 | **8** | **Bulging** (binary) | 등방 리샘플 → 중심 크롭 128×128 | ✗ | ✗ | BCE | 0.7805 |
+| **9** | **Bulging** (binary) | 등방 리샘플 → 좌·중·우 3채널 128×128 | ✗ | ✗ | BCE | **0.7980** |
 
 **핵심 관찰**
 1. Herniation(~5%)은 현재 규모에서 학습 자체가 불가 — 클래스 불균형이 결정적
 2. 디스크 크롭(Section 5→6)은 타겟이 맞으면 효과적인 전처리
 3. Z-score + 증강(Section 7)이 현재까지 최고 성능(Test F1 0.8186)
 4. Section 8 등방 리샘플은 정규화·증강 없이는 Section 6 대비 성능 개선 없음 — 데이터셋 대부분이 이미 등방(sh≈sw≈0.625mm)이어서 효과 제한적
+5. Section 9 멀티슬라이스는 Section 8 대비 Test F1 +0.018 향상 — 3D 공간 정보 활용의 효과, 특히 Recall 개선
