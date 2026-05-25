@@ -381,6 +381,59 @@ Early stopping at epoch 18
 
 ---
 
+## Section 11 — CNN Feature Extraction + Tabular ML 분류
+
+### 배경
+
+같은 방사선 판독 레이블(Pfirrmann, Narrowing, Herniation 등)은 데이터 누수로 제외.
+Sec 7 CNN을 피처 추출기로 활용하고, 판독 외 정형 정보(환자/스캐너)와 결합해
+end-to-end 학습 없이 ML 분류기로 예측한다.
+
+### 설정
+
+| 항목 | 내용 |
+|------|------|
+| **CNN 피처** | Sec 7 `model_v2` 펜얼티미트 레이어 → **256차원** |
+| **정형 피처** | IVD 위치 one-hot(6) + sex/num_vertebrae/num_discs/MagneticFieldStrength/SliceThickness/SpacingBetweenSlices(6) + Manufacturer one-hot(3) = **15차원** |
+| **결합 피처** | CNN(256) + tabular(15) = **271차원** |
+| **분류기** | Logistic Regression / Random Forest(n=300) / Gradient Boosting(n=200, lr=0.05) |
+| **데이터** | 동일 split (Train 876 / Val 186 / Test 192) |
+
+### Val 결과 비교
+
+| 분류기 | Val Acc | Val Prec | Val Rec | Val F1 |
+|--------|---------|----------|---------|--------|
+| Logistic Regression | 0.6882 | 0.7182 | 0.7453 | 0.7315 |
+| **Random Forest** | 0.7796 | 0.7826 | 0.8491 | **0.8145** |
+| Gradient Boosting | 0.7419 | 0.7589 | 0.8019 | 0.7798 |
+| *[Sec 7 CNN 단독]* | *0.8118* | *0.8034* | *0.8868* | *0.8430* |
+
+### 결과 (최고 Val F1: Random Forest)
+
+| Split | Accuracy | Precision | Recall | F1 |
+|-------|----------|-----------|--------|----|
+| **Val** | 0.7796 | 0.7826 | 0.8491 | 0.8145 |
+| **Test** | 0.6823 | 0.6271 | 0.8132 | **0.7081** |
+
+| 분류기 | Test Acc | Test Prec | Test Rec | Test F1 |
+|--------|----------|-----------|----------|---------|
+| Logistic Regression | 0.6458 | 0.6036 | 0.7363 | 0.6634 |
+| Random Forest | 0.6823 | 0.6271 | 0.8132 | 0.7081 |
+| Gradient Boosting | 0.6667 | 0.6195 | 0.7692 | 0.6863 |
+| *[Sec 7 CNN 단독]* | *0.7969* | *0.7273* | *0.9362* | *0.8186* |
+
+### 분석
+
+- **모든 ML 분류기가 Sec 7 CNN 단독(0.8186)보다 낮음** — 정형 피처 결합의 효과 없음
+- Val-Test 갭이 매우 큼 (RF: 0.8145 → 0.7081, Δ0.107) — CNN 단독(0.8430 → 0.8186, Δ0.024)보다 훨씬 불안정
+- 원인 분석:
+  - CNN 256-dim 피처는 BCE 손실로 학습된 표현 — RF/GB에 최적화된 피처가 아님
+  - 876개 샘플에 271차원 입력 → 트리 계열 분류기의 과적합 가능성
+  - 정형 피처 15차원(IVD 위치, 스캐너 정보)이 bulging 예측에 실질적 정보 추가 없음
+- Feature importance 확인: CNN 피처(256개)가 상위 대부분 차지, 정형 피처의 기여 미미
+
+---
+
 ## 종합 비교
 
 | Section | 타겟 | 입력 | 정규화 | 증강 | 손실함수 | Test F1 |
@@ -392,6 +445,7 @@ Early stopping at epoch 18
 | **8** | **Bulging** (binary) | 등방 리샘플 → 중심 크롭 128×128 | ✗ | ✗ | BCE | 0.7805 |
 | **9** | **Bulging** (binary) | 등방 리샘플 → 좌·중·우 3채널 128×128 | ✗ | ✗ | BCE | 0.7980 |
 | **10** | **Bulging** (binary) | 등방 리샘플 → 좌·중·우 3채널 128×128 | Z-score | Flip+Rot | BCE | 0.7800 |
+| **11** | **Bulging** (binary) | CNN(256) + tabular(15) = 271차원 | — | — | RF/GB/LR | 0.7081 |
 
 **핵심 관찰**
 1. Herniation(~5%)은 현재 규모에서 학습 자체가 불가 — 클래스 불균형이 결정적
@@ -400,3 +454,4 @@ Early stopping at epoch 18
 4. Section 8 등방 리샘플은 정규화·증강 없이는 Section 6 대비 성능 개선 없음 — 데이터셋 대부분이 이미 등방(sh≈sw≈0.625mm)이어서 효과 제한적
 5. Section 9 멀티슬라이스는 Section 8 대비 Test F1 +0.018 향상 — 3D 공간 정보 활용의 효과, 특히 Recall 개선
 6. Section 10 조합(Sec9+Sec7)은 기대와 달리 Test F1 0.7800으로 오히려 하락 — 3채널 입력 복잡도 + 증강의 조합이 현재 데이터 규모(876개)에서 학습 난이도를 높인 것으로 보임
+7. Section 11 CNN+tabular ML 융합은 Test F1 0.7081로 최저 — CNN 피처를 ML 분류기에 넘기는 방식은 end-to-end 학습보다 열세; 환자/스캐너 정형 피처가 bulging 예측에 추가 정보 제공 못함
