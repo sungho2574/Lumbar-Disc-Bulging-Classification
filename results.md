@@ -324,6 +324,63 @@ Early stopping at epoch 19
 
 ---
 
+## Section 10 — Multi-Slice + Z-score + Augmentation (Sec9 + Sec7 조합)
+
+### 배경
+
+Sec 7(Z-score + 증강)과 Sec 9(3채널 멀티슬라이스)가 각각 다른 축에서 효과를 보였으므로
+두 개선을 합쳐 시너지 여부를 측정한다.
+
+### 설정
+
+| 항목 | 내용 |
+|------|------|
+| **타겟** | Disc Bulging (동일) |
+| **데이터** | 동일 split (Train 876 / Val 186 / Test 192) |
+| **입력** | 좌·중·우 3슬라이스 (물리적 ±4mm) → 각각 등방 리샘플(0.75mm/px) + 중심 크롭 128×128 |
+| **정규화** | 채널별 독립 Z-score |
+| **증강** | Train only — RandomHorizontalFlip(p=0.5) + RandomRotation(±15°) **(3채널 동시 적용)** |
+| **모델** | SpiderDiscCNN3 (동일, 파라미터 8,482,817) |
+| **손실함수** | BCEWithLogitsLoss |
+| **옵티마이저** | Adam lr=1e-4, Early Stopping patience=10 |
+
+### 학습 로그
+
+```
+Epoch   1: train=0.8102  val=0.6060
+Epoch   5: train=0.5069  val=0.4570
+Epoch  10: train=0.4436  val=0.4280
+Epoch  15: train=0.3759  val=0.4353
+Early stopping at epoch 18
+```
+
+### 결과
+
+| Split | Accuracy | Precision | Recall | F1 |
+|-------|----------|-----------|--------|----|
+| **Val** | 0.7957 | 0.7881 | 0.8774 | 0.8304 |
+| **Test** | 0.7708 | 0.7156 | 0.8571 | **0.7800** |
+
+### 주요 섹션 대비 변화량
+
+| 지표 | vs Sec 7 (Val) | vs Sec 7 (Test) | vs Sec 9 (Val) | vs Sec 9 (Test) |
+|------|---------------|----------------|---------------|----------------|
+| Accuracy | −0.0161 | −0.0261 | +0.0054 | −0.0157 |
+| Precision | −0.0153 | −0.0275 | +0.0112 | −0.0275 |
+| Recall | −0.0094 | −0.0791 | −0.0094 | −0.0046 |
+| **F1** | **−0.0126** | **−0.0386** | **+0.0022** | **−0.0180** |
+
+### 분석
+
+- Val F1 0.8304 — Sec 9(0.8282) 대비 소폭 개선, Sec 7(0.8430)보다는 낮음
+- **Test F1 0.7800** — Sec 7(0.8186), Sec 9(0.7980) 모두 하회. 조합의 시너지 없음
+- 3채널 입력에 Z-score + 증강을 추가해도 Test 성능이 오르지 않은 원인 분석:
+  - 데이터 876개로 3채널 입력은 이미 입력 복잡도가 높은데, 증강까지 더해 학습 난이도 상승
+  - Early stopping(18 epoch)이 학습 조기 종료 — Z-score + 증강 조합은 수렴에 더 많은 에폭이 필요할 수 있음 (Sec 7은 32 epoch)
+  - Val-Test 격차(0.8304 → 0.7800)가 크게 벌어짐 → val set 과적합 가능성
+
+---
+
 ## 종합 비교
 
 | Section | 타겟 | 입력 | 정규화 | 증강 | 손실함수 | Test F1 |
@@ -333,7 +390,8 @@ Early stopping at epoch 19
 | **6** | **Bulging** (binary) | bbox 크롭 → Resize 128×128 | ✗ | ✗ | BCE | 0.7885 ✅ |
 | **7** | **Bulging** (binary) | bbox 크롭 → Resize 128×128 | Z-score | Flip+Rot | BCE | **0.8186** ✅ |
 | **8** | **Bulging** (binary) | 등방 리샘플 → 중심 크롭 128×128 | ✗ | ✗ | BCE | 0.7805 |
-| **9** | **Bulging** (binary) | 등방 리샘플 → 좌·중·우 3채널 128×128 | ✗ | ✗ | BCE | **0.7980** |
+| **9** | **Bulging** (binary) | 등방 리샘플 → 좌·중·우 3채널 128×128 | ✗ | ✗ | BCE | 0.7980 |
+| **10** | **Bulging** (binary) | 등방 리샘플 → 좌·중·우 3채널 128×128 | Z-score | Flip+Rot | BCE | 0.7800 |
 
 **핵심 관찰**
 1. Herniation(~5%)은 현재 규모에서 학습 자체가 불가 — 클래스 불균형이 결정적
@@ -341,3 +399,4 @@ Early stopping at epoch 19
 3. Z-score + 증강(Section 7)이 현재까지 최고 성능(Test F1 0.8186)
 4. Section 8 등방 리샘플은 정규화·증강 없이는 Section 6 대비 성능 개선 없음 — 데이터셋 대부분이 이미 등방(sh≈sw≈0.625mm)이어서 효과 제한적
 5. Section 9 멀티슬라이스는 Section 8 대비 Test F1 +0.018 향상 — 3D 공간 정보 활용의 효과, 특히 Recall 개선
+6. Section 10 조합(Sec9+Sec7)은 기대와 달리 Test F1 0.7800으로 오히려 하락 — 3채널 입력 복잡도 + 증강의 조합이 현재 데이터 규모(876개)에서 학습 난이도를 높인 것으로 보임
