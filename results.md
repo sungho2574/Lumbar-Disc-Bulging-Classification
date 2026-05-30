@@ -434,6 +434,67 @@ end-to-end 학습 없이 ML 분류기로 예측한다.
 
 ---
 
+## Section 12 — 경량 모델: 2 Conv + Global Average Pooling (Sec 8 전처리)
+
+### 배경
+
+Section 6~11의 SpiderDiscCNN(8.4M 파라미터)은 876개 학습 데이터 대비 파라미터가 과도하게 많아
+(샘플당 파라미터 1:9,680) epoch 5 이내에 train/val loss가 역전되는 조기 과적합 발생.
+모델을 데이터 규모에 맞게 대폭 축소하고, Flatten+FC 대신 GAP으로 교체.
+
+### 설정
+
+| 항목 | 내용 |
+|------|------|
+| **타겟** | Disc Bulging (동일) |
+| **데이터** | Sec 8과 동일 split + DataLoader (Train 876 / Val 186 / Test 192) |
+| **전처리** | Sec 8과 동일 (등방 리샘플 TARGET_SP=0.75mm/px + 중심 크롭 128×128) |
+| **모델** | **SpiderDiscCNN_GAP** — Conv(1→32→64) × 2 + GAP + Dropout(0.3) + FC(64→1) |
+| **파라미터** | **19,073개** (Sec 6~11의 8.4M 대비 444배 감소, 샘플당 1:22) |
+| **손실함수** | BCEWithLogitsLoss |
+| **옵티마이저** | Adam lr=1e-4, Early Stopping patience=10 |
+| **정규화·증강** | 없음 |
+
+### Sec 6~11 vs Sec 12 모델 구조 비교
+
+| | SpiderDiscCNN (Sec 6~11) | **SpiderDiscCNN_GAP (Sec 12)** |
+|---|---|---|
+| Conv 블록 | 3개 (1→32→64→128) | **2개 (1→32→64)** |
+| 피처맵 처리 | Flatten 32,768 → FC(256) | **GAP → 64** |
+| Dropout | 0.5 | **0.3** |
+| 총 파라미터 | 8,482,241 | **19,073** |
+| 샘플당 파라미터 | 1 : 9,680 | **1 : 22** |
+
+### 학습 로그
+
+```
+Epoch   1: train=0.8305  val=0.7939
+Epoch   5: train=0.7095  val=0.6906
+Epoch  10: train=0.6757  val=0.6578
+Epoch  20: train=0.6511  val=0.6165
+Epoch  30: train=0.6328  val=0.5962
+Epoch  40: train=0.6208  val=0.5880
+Epoch  50: train=0.6216  val=0.5767
+(Early stopping 미발동 — 50 epoch 내내 val loss 감소)
+```
+
+### 결과
+
+| Split | Accuracy | Precision | Recall | F1 |
+|-------|----------|-----------|--------|----|
+| **Val** | 0.8172 | 0.8214 | 0.8679 | **0.8440** |
+| **Test** | 0.6823 | 0.6336 | 0.8646 | 0.7313 |
+
+### 분석
+
+- **Val F1 0.8440 — 전 섹션 최고**, 50 epoch 내내 train > val 유지 (과적합 없음)
+- **Test F1 0.7313 — Val 대비 갭 0.1127** (다른 섹션들 갭 0.02~0.04의 3~5배)
+- 학습 곡선이 정상적(val < train 유지)임에도 Test 성능이 낮은 것은 모델 과적합이 아닌 **Val-Test set 분포 불일치** 가능성을 강하게 시사
+- Val(31명)과 Test(32명)의 소규모 환자 집합 간 자연적 분포 편차 + **동일 Val set으로 12개 섹션 선택을 반복한 메타 수준의 val 과적합** 누적 효과로 해석
+- → K-fold 교차검증으로 성능 추정치의 신뢰도 검증 필요
+
+---
+
 ## 종합 비교
 
 | Section | 타겟 | 입력 | 정규화 | 증강 | 손실함수 | Test F1 |
@@ -446,6 +507,7 @@ end-to-end 학습 없이 ML 분류기로 예측한다.
 | **9** | **Bulging** (binary) | 등방 리샘플 → 좌·중·우 3채널 128×128 | ✗ | ✗ | BCE | 0.7980 |
 | **10** | **Bulging** (binary) | 등방 리샘플 → 좌·중·우 3채널 128×128 | Z-score | Flip+Rot | BCE | 0.7800 |
 | **11** | **Bulging** (binary) | CNN(256) + tabular(15) = 271차원 | — | — | RF/GB/LR | 0.7081 |
+| **12** | **Bulging** (binary) | 등방 리샘플 → 중심 크롭 128×128 | ✗ | ✗ | BCE | 0.7313 ⚠️ |
 
 **핵심 관찰**
 1. Herniation(~5%)은 현재 규모에서 학습 자체가 불가 — 클래스 불균형이 결정적
@@ -455,3 +517,4 @@ end-to-end 학습 없이 ML 분류기로 예측한다.
 5. Section 9 멀티슬라이스는 Section 8 대비 Test F1 +0.018 향상 — 3D 공간 정보 활용의 효과, 특히 Recall 개선
 6. Section 10 조합(Sec9+Sec7)은 기대와 달리 Test F1 0.7800으로 오히려 하락 — 3채널 입력 복잡도 + 증강의 조합이 현재 데이터 규모(876개)에서 학습 난이도를 높인 것으로 보임
 7. Section 11 CNN+tabular ML 융합은 Test F1 0.7081로 최저 — CNN 피처를 ML 분류기에 넘기는 방식은 end-to-end 학습보다 열세; 환자/스캐너 정형 피처가 bulging 예측에 추가 정보 제공 못함
+8. Section 12 GAP 경량 모델은 Val F1 0.8440(최고)이나 Test F1 0.7313으로 Val-Test 갭이 0.113에 달함 — 모델 과적합이 아닌 Val/Test set 분포 불일치 및 메타 수준의 val 과적합 가능성. **단일 split 기반 평가의 신뢰도 한계를 드러낸 섹션**
