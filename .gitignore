@@ -1,11 +1,13 @@
+.claude/
 .venv/
 __pycache__/
-*.pth
-models/
-.DS_Store
-best_option1.pth
-best_option2.pth
-best_binary_tmp.pth
-best_binary_focal.pth
 data/images/
 data/masks/
+data/n4_2d
+# models/
+# *.pth
+paper/
+results/
+.DS_Store
+CLAUDE.md
+Machine Learning - Term Project.pdf

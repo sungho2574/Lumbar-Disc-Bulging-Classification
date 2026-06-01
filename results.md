@@ -101,6 +101,61 @@ Early stopping at epoch 17
 
 ---
 
+## Section 5-1 — SpiderDiscCNN_GAP + Focal Loss + Stratified Split (Herniation)
+
+### 배경
+
+Sec 5(SpiderDiscCNN 8.4M + Focal Loss)의 실패 원인이 모델 과용량에도 있다고 판단,
+이후 bulging 실험에서 사용할 경량 모델(SpiderDiscCNN_GAP)과 동일한 구조로 herniation을 재시도.
+클래스 비율을 보존하는 stratified split과 최대 200 epoch 학습을 추가 적용.
+
+### 설정
+
+| 항목 | 내용 |
+|------|------|
+| **타겟** | Disc Herniation (이진분류) |
+| **샘플 단위** | 디스크 1개 = 샘플 1개 |
+| **데이터** | 209명, Train 876 / Val 186 / Test 192 (stratified split, seed=0) |
+| **양성 비율** | Train 5.6% / Val 5.4% / Test 6.2% |
+| **입력** | bbox crop + T.Resize(128×128), 정규화 없음 |
+| **모델** | **SpiderDiscCNN_GAP** — Conv(1→32→64) + GAP + Dropout(0.3) + FC(64→1), **18,881 params** |
+| **손실함수** | Focal Loss (alpha=0.25, gamma=2.0) |
+| **옵티마이저** | Adam lr=1e-4, Early Stopping patience=15 |
+| **최대 에폭** | 200 |
+
+### 학습 로그
+
+```
+ Epoch | Train Loss |  Val Loss |  Val F1 | Wait
+----------------------------------------------------
+     1 |     2.6045 |    1.1877 |  0.0000 |    0
+    10 |     0.3148 |    0.1437 |  0.0000 |    0
+    20 |     0.0603 |    0.0408 |  0.0000 |    1
+    30 |     0.0319 |    0.0184 |  0.0000 |    0
+    50 |     0.0165 |    0.0165 |  0.0000 |    2
+    70 |     0.0164 |    0.0159 |  0.0000 |    2
+   100 |     0.0144 |    0.0157 |  0.0000 |    8
+   120 |     0.0134 |    0.0154 |  0.0000 |    0
+   130 |     0.0129 |    0.0158 |  0.0000 |   10
+Early stop @ epoch 135
+```
+
+### 결과
+
+| Split | Accuracy | Precision | Recall | F1 |
+|-------|----------|-----------|--------|----|
+| **Val** | 0.9462 | 0.0000 | 0.0000 | 0.0000 |
+| **Test** | 0.9375 | 0.0000 | 0.0000 | 0.0000 |
+
+### 분석
+
+- 경량 모델 + Focal Loss + Stratified Split + 135 epoch 학습에도 Val F1 = 0.0000 유지
+- Val loss는 꾸준히 감소(1.19 → 0.015)했으나, 이는 loss 함수가 양성 샘플을 완전히 무시하고
+  음성 샘플의 loss만 줄이는 방향으로 수렴한 것 (trivial solution의 다른 형태)
+- **결론**: Herniation 양성 샘플 ~70개(5.7%)로는 현재 데이터 규모에서 학습이 근본적으로 불가능
+
+---
+
 ## Section 6 — 디스크 크롭 베이스라인 (Bulging)
 
 ### 설정
@@ -495,12 +550,19 @@ Epoch  50: train=0.6216  val=0.5767
 
 ---
 
-## Section 6-1 — Disc Bulging Baseline (SpiderDiscCNN_GAP, seed=0)
+## Section 13 — 3-Fold Cross-Validation Baseline
 
 ### 배경
 
-기존 Sec 6(SpiderDiscCNN, 8.4M params, seed=42)을 새 베이스라인으로 재설정.
-보고서 기준선으로 삼기 위해 경량 모델(SpiderDiscCNN_GAP)과 seed=0으로 통일.
+Section 12까지의 모든 실험은 동일한 단일 Val set(31명)으로 모델 선택을 반복해왔다.
+12개 섹션에 걸친 반복 선택이 메타 수준의 Val 과적합을 누적시킨 것으로 판단되며,
+이를 해소하기 위해 환자 레벨 Stratified 3-Fold CV를 도입한다.
+
+CV 설정은 보고서 베이스라인인 **Sec 6-1** 구성과 동일하게 유지한다.
+
+> **Sec 6-1 참고 (단일 hold-out, seed=0)**
+> - 모델: SpiderDiscCNN_GAP (18,881 params), 전처리: bbox crop → Resize(128×128), BCE, patience=10
+> - Val F1: 0.8085 / Test F1: 0.6979 / Val-Test 갭: 0.111
 
 ### 설정
 
@@ -508,67 +570,305 @@ Epoch  50: train=0.6216  val=0.5767
 |------|------|
 | **타겟** | Disc Bulging (이진분류) |
 | **샘플 단위** | 디스크 1개 = 샘플 1개 |
-| **데이터** | Train 876 / Val 186 / Test 192 (seed=0) |
-| **입력** | bbox crop + T.Resize(128×128) — Sec 6와 동일, 정규화 없음 |
-| **모델** | **SpiderDiscCNN_GAP** — Conv(1→32→64) + GAP + Dropout(0.3) + FC(64→1) |
-| **파라미터** | **18,881개** |
+| **전체 데이터** | 환자 209명, 디스크 샘플 1,254개 |
+| **입력** | bbox crop + T.Resize(128×128), 정규화 없음 (Sec 6-1과 동일) |
+| **모델** | SpiderDiscCNN_GAP — Conv(1→32→64) + GAP + Dropout(0.3) + FC(64→1), **18,881 params** |
 | **손실함수** | BCEWithLogitsLoss |
 | **옵티마이저** | Adam lr=1e-4, Early Stopping patience=10 |
+| **CV** | StratifiedKFold(n_splits=3, shuffle=True, seed=0), 환자 레벨 stratify |
+| **Stratify 기준** | 해당 환자에 ≥1 bulging disc이면 양성 |
+| **결과 저장** | `results/13_cv_baseline/` — `metrics.csv`, `loss_curves.pdf`, `confusion_matrices.pdf` |
 
-### 학습 로그
+### 학습 로그 (요약)
 
 ```
- Epoch |    Train |      Val |  Val F1
-     1 |  38.3047 |  11.5192 |  0.3114
-    10 |   2.1765 |   0.8224 |  0.7937
-    20 |   0.7495 |   0.5466 |  0.7414
-    30 |   0.6397 |   0.5244 |  0.7819
-    40 |   0.5934 |   0.5211 |  0.7901
-    50 |   0.5614 |   0.5260 |  0.7888
-    60 |   0.5647 |   0.5155 |  0.7952
-    70 |   0.5549 |   0.4999 |  0.8117
-Early stop @ epoch 77
+Fold 1 | Train 139 pids (834 smp) | Val 70 pids (420 smp)
+  Ep 1  : train=39.8701  val=4.2890  F1=0.6821
+  Ep 10 : train= 3.2312  val=0.9530  F1=0.6681
+  Ep 30 : train= 0.6487  val=0.5870  F1=0.7077
+  Ep 50 : train= 0.6104  val=0.5569  F1=0.7329  → early stop
+
+Fold 2 | Train 139 pids (834 smp) | Val 70 pids (420 smp)
+  Ep 1  : train=19.0608  val=4.9329  F1=0.0000
+  Ep 10 : train= 1.3977  val=0.6526  F1=0.7586
+  Ep 40 : train= 0.5896  val=0.5599  F1=0.7927
+  Ep 50 : train= 0.5755  val=0.5508  F1=0.7746  → early stop
+
+Fold 3 | Train 140 pids (840 smp) | Val 69 pids (414 smp)
+  Ep 1  : train=21.0673  val=9.2877  F1=0.7222
+  Ep 10 : train= 1.9116  val=0.7700  F1=0.6591
+  Ep 40 : train= 0.5968  val=0.5644  F1=0.7683
+  Ep 50 : train= 0.5852  val=0.5640  F1=0.7769  → early stop
 ```
 
 ### 결과
 
-| Split | Accuracy | Precision | Recall | F1 |
-|-------|----------|-----------|--------|----|
-| **Val** | 0.7581 | 0.7540 | 0.8716 | 0.8085 |
-| **Test** | 0.6979 | 0.6321 | 0.7791 | **0.6979** |
+| Fold | Acc | Precision | Recall | F1 |
+|------|-----|-----------|--------|----|
+| 1 | 0.7119 | 0.7477 | 0.7186 | 0.7329 |
+| 2 | 0.7548 | 0.7729 | 0.7763 | 0.7746 |
+| 3 | 0.7150 | 0.6973 | 0.8761 | 0.7765 |
+| **Mean** | **0.7272** | **0.7393** | **0.7903** | **0.7613** |
+| **Std** | 0.0195 | 0.0315 | 0.0650 | 0.0201 |
 
 ### 분석
 
-- 77 epoch까지 학습 — 경량 모델답게 조기 과적합 없이 꾸준히 수렴
-- Val F1 0.8085로 양호하나, **Test F1 0.6979로 Val-Test 갭 0.111** — 여전히 큰 갭
-- 기존 Sec 6(Test F1 0.7885)보다 낮음 — 모델 용량 감소 + seed 변경의 영향
-- 이 결과를 **새 베이스라인**으로 삼아 이후 개선 실험의 기준점으로 사용
+- 3-Fold CV Val F1: **0.7613 ± 0.0201**
+- Fold 2가 F1 0.7746으로 가장 높고, Fold 1이 0.7329로 가장 낮음 — fold 간 편차 존재
+- 단일 hold-out(Sec 6-1) Val F1 0.8085 대비 낮지만, 이는 CV가 전체 데이터를 val로 순환하므로
+  더 보수적인 추정치임 (메타 val 과적합 없음)
+- Recall 편차(std=0.065)가 Precision(0.031)보다 큰 것은 fold별 양성 분포 차이에 기인
+- **Sec 6-1 단일 split Val F1(0.8085) vs CV Mean F1(0.7613)의 0.047 차이**가
+  메타 수준 val 과적합의 크기를 보여줌
+
+---
+
+## Section 14 — 3-Fold CV + Isotropic Resampling (Sec 8 방식)
+
+### 배경
+
+Sec 13(bbox crop + Resize 베이스라인)과 동일 모델·CV 설정에
+**Sec 8의 등방 리샘플링 + 중심 크롭 전처리**를 적용하여
+물리적 스케일 통일이 CV 기반 성능에 미치는 영향을 측정한다.
+
+- 입력 파이프라인: `scipy.ndimage.zoom` → TARGET_SP=0.75mm/px 등방 리샘플 → 디스크 중심 기준 128×128 중심 크롭 + 제로패딩
+- Sec 13과 달리 종횡비 왜곡 없음, 환자 간 물리적 FOV(96mm×96mm) 일정
+- 정규화·증강 없음 — 전처리 효과만 단독 격리
+
+### 설정
+
+| 항목 | 내용 |
+|------|------|
+| **타겟** | Disc Bulging (이진분류) |
+| **전체 데이터** | 환자 209명, 디스크 샘플 1,254개 |
+| **입력** | `scipy.ndimage.zoom` → 0.75mm/px 등방 리샘플 → 디스크 중심 128×128 중심 크롭 + 제로패딩 |
+| **정규화·증강** | 없음 |
+| **모델** | SpiderDiscCNN_GAP (18,881 params) |
+| **손실함수** | BCEWithLogitsLoss |
+| **옵티마이저** | Adam lr=1e-4, Early Stopping patience=10 |
+| **CV** | StratifiedKFold(n_splits=3, shuffle=True, seed=0) |
+| **결과 저장** | `results/14_cv_iso/` |
+
+### 결과
+
+| Fold | Acc | Precision | Recall | F1 |
+|------|-----|-----------|--------|----|
+| 1 | 0.7500 | 0.7739 | 0.7706 | 0.7722 |
+| 2 | 0.7286 | 0.7545 | 0.7412 | 0.7478 |
+| 3 | 0.7053 | 0.7393 | 0.7393 | 0.7393 |
+| **Mean** | **0.7280** | **0.7559** | **0.7504** | **0.7531** |
+| **Std** | 0.0182 | 0.0142 | 0.0143 | 0.0140 |
+
+### Sec 13 대비 변화량
+
+| 지표 | Sec 13 Mean | Sec 14 Mean | Δ |
+|------|-------------|-------------|---|
+| Accuracy  | 0.7272 | 0.7280 | +0.0008 |
+| Precision | 0.7393 | 0.7559 | **+0.0166** |
+| Recall    | 0.7903 | 0.7504 | −0.0399 |
+| F1        | 0.7613 | 0.7531 | −0.0082 |
+| F1 Std    | 0.0201 | 0.0140 | −0.0061 (더 안정) |
+
+### 분석
+
+- CV Mean F1 **0.7531 ± 0.0140** — Sec 13(0.7613 ± 0.020) 대비 소폭 하락(−0.0082)
+- Precision은 +0.017 향상됐으나 Recall이 −0.040 하락 → 모델이 더 보수적으로 예측
+- F1 표준편차는 0.014로 Sec 13(0.020)보다 작아 fold 간 편차는 감소
+- 등방 리샘플링이 CV 기반에서도 성능을 개선하지 못함 — Sec 8 단일 hold-out 결과(Sec 6 대비 −0.008)와 일치
+- 원인: 데이터셋의 in-plane spacing이 이미 대부분 등방(sh≈sw≈0.625mm)에 가까워 0.75mm/px 리샘플의 실질 효과 제한적
+- bbox crop → T.Resize 방식이 중심 크롭 + 제로패딩보다 오히려 성능이 좋은 이유는
+  bbox 기반 크롭이 디스크 주변 조직만 타이트하게 포함하여 모델에 더 유의미한 지역 특징을 제공하기 때문으로 추정
+
+---
+
+## Section 15 — 3-Fold CV + N4 Bias Field Correction + Foreground Normalization + Augmentation
+
+### 배경
+
+Section 14(등방 리샘플, CV F1=0.7531)에서 물리적 스케일 통일만으로는 성능 향상이 없었다.
+Sec 15는 척추 MRI 특화 전처리 2단계를 추가한다:
+1. **N4ITK Bias Field Correction** — 코일 근접도 차이에서 오는 posterior↔anterior 신호 불균일 보정. 2D mid-sagittal 슬라이스 단위로 미리 계산 후 `data/n4_2d/{pid}.npz`에 캐시.
+2. **Foreground Normalization** — crop 내 ≠0 픽셀의 mean/std로 전체 crop 정규화.
+
+학습 조건은 등방 리샘플(0.75mm/px) + 중심 크롭(128×128 + 제로패딩)을 유지하고,
+Train-only MRI-safe 증강을 추가:
+- `RandomAffine(degrees=10, translate=(0.08, 0.08))`
+- `ElasticTransform(alpha=25.0, sigma=4.0)`
+- Gaussian Noise (std=0.02)
+
+### 설정
+
+| 항목 | 내용 |
+|------|------|
+| **타겟** | Disc Bulging (이진분류) |
+| **전체 데이터** | 환자 209명, 디스크 샘플 1,254개 |
+| **입력** | N4 보정 2D 슬라이스 → 0.75mm/px 등방 리샘플 → 중심 크롭 128×128 + 제로패딩 |
+| **정규화** | Foreground(≠0) 픽셀 mean/std → 전체 crop |
+| **증강 (Train only)** | RandomAffine(±10°, ±8%) + ElasticTransform + Gaussian Noise(std=0.02) |
+| **모델** | SpiderDiscCNN_GAP (18,881 params) |
+| **손실함수** | BCEWithLogitsLoss |
+| **옵티마이저** | Adam lr=1e-4, Early Stopping patience=10 |
+| **CV** | StratifiedKFold(n_splits=3, shuffle=True, seed=0) |
+| **결과 저장** | `results/15_cv_n4_norm/` |
+
+### 결과
+
+| Fold | Acc | Precision | Recall | F1 |
+|------|-----|-----------|--------|----|
+| 1 | 0.5500 | 0.5505 | 0.9913 | 0.7079 |
+| 2 | 0.6071 | 0.5845 | 0.9561 | 0.7255 |
+| 3 | 0.5700 | 0.5680 | 1.0000 | 0.7245 |
+| **Mean** | **0.5757** | **0.5676** | **0.9825** | **0.7193** |
+| **Std** | 0.0237 | 0.0139 | 0.0190 | 0.0081 |
+
+### Section 14 대비 변화량
+
+| 지표 | Sec 14 Mean | Sec 15 Mean | Δ |
+|------|-------------|-------------|---|
+| Accuracy  | 0.7280 | 0.5757 | **−0.1523** |
+| Precision | 0.7559 | 0.5676 | −0.1883 |
+| Recall    | 0.7504 | 0.9825 | +0.2321 |
+| F1        | 0.7531 | 0.7193 | −0.0338 |
+
+### 분석
+
+- Recall이 모든 fold에서 0.99~1.00에 도달 → 모델이 거의 모든 샘플을 **양성(Bulging)으로 예측**하는 Trivial Positive Solution에 수렴
+- Precision 0.57 ≈ 전체 양성 비율(55.3%)과 유사 → 기준 확률 수준의 정밀도
+- Accuracy 0.576은 Section 14(0.728)는 물론 무조건 양성 예측(55.3%)보다도 낮음 → 학습 실패
+- 원인 분석:
+  1. **ElasticTransform + Gaussian Noise 조합**이 N4 보정·정규화로 이미 약해진 신호를 추가 왜곡해 학습 신호 파괴
+  2. **Foreground 정규화** 후 zero-padding 영역이 큰 음의 값(≈ -mean/std)을 가지게 되어 GAP이 이를 의미 있는 특징으로 잘못 학습했을 가능성
+  3. 증강이 너무 공격적 → 실제 disc 형태 특징이 훼손된 상태로 학습
+- 전처리·증강을 한꺼번에 모두 추가한 것이 문제 → 각 요소를 분리해 효과를 검증하는 Ablation이 필요
+
+---
+
+## Section 16 — 3-Fold CV + Multi-Slice 3-Channel Input
+
+### 설정
+
+| 항목 | 내용 |
+|------|------|
+| **모델** | SpiderDiscCNN_GAP_3ch (19,457 params, in_channels=3) |
+| **입력** | 등방 리샘플(0.75mm/px) → 중심 크롭 128×128, L/C/R 슬라이스 (물리적 ±4mm) |
+| **정규화** | 없음 |
+| **증강** | 없음 |
+| **손실함수** | BCEWithLogitsLoss |
+| **옵티마이저** | Adam (lr=1e-4), patience=10 |
+| **최대 에폭** | 200 |
+| **평가** | StratifiedKFold(n=3, seed=0), 환자 레벨 stratification |
+| **결과 저장** | `results/16_cv_3ch/` |
+
+### 결과
+
+| Fold | Accuracy | Precision | Recall | F1 |
+|------|----------|-----------|--------|----|
+| 1 | 0.7524 | 0.7433 | 0.8398 | 0.7886 |
+| 2 | 0.7405 | 0.7196 | 0.8553 | 0.7816 |
+| 3 | 0.6932 | 0.7277 | 0.7308 | 0.7292 |
+| **Mean** | **0.7287** | **0.7302** | **0.8086** | **0.7665** |
+| **Std** | 0.0255 | 0.0099 | 0.0554 | 0.0265 |
+
+### Section 14 대비 비교
+
+| 지표 | Sec 14 (1ch) | Sec 16 (3ch) | Δ |
+|------|--------------|--------------|---|
+| Accuracy  | 0.7280 | 0.7287 | +0.0007 |
+| Precision | 0.7559 | 0.7302 | −0.0257 |
+| Recall    | 0.7504 | 0.8086 | +0.0582 |
+| F1        | 0.7531 | 0.7665 | **+0.0134** |
+
+### 분석
+
+- F1=0.767로 Sec 14(0.753) 대비 +0.013 향상 → L/C/R 3채널로 3D 공간 정보 활용이 소폭 기여
+- Fold 1·2 F1(0.789, 0.782)은 안정적, Fold 3 F1(0.729)이 유독 낮아 Recall std=0.055로 큰 편
+  - Fold 3 검증 집합의 환자 구성(스캐너 종류, 극단적 픽셀 스페이싱 등)에 따른 편차로 추정
+- Precision std=0.010으로 매우 안정적 → 양성 예측의 정밀도는 fold 간 일관성 높음
+- 200 에폭까지 손실이 계속 하강, 학습률 스케줄러 추가 시 추가 개선 가능성
+
+---
+
+## Section 17 — 3-Fold CV + N4 Bias Field Correction + Foreground Normalization (증강 제거)
+
+### 목적
+
+Section 15 (N4 + Norm + 증강)에서 trivial positive solution이 발생한 원인을 분리하기 위한 ablation.
+증강만 제거하고 나머지 설정은 Sec 15와 동일하게 유지.
+
+### 설정
+
+| 항목 | 내용 |
+|------|------|
+| **모델** | SpiderDiscCNN_GAP_b0 (18,881 params) |
+| **입력** | N4 보정 2D 슬라이스 → 등방 리샘플(0.75mm/px) → 중심 크롭 128×128 + 제로패딩 |
+| **정규화** | Foreground (≠0) 픽셀 mean/std |
+| **증강** | 없음 |
+| **손실함수** | BCEWithLogitsLoss |
+| **옵티마이저** | Adam (lr=1e-4), patience=10 |
+| **최대 에폭** | 200 |
+| **평가** | StratifiedKFold(n=3, seed=0), 환자 레벨 stratification |
+| **결과 저장** | `results/17_cv_n4_noaug/` |
+
+### 결과
+
+| Fold | Accuracy | Precision | Recall | F1 |
+|------|----------|-----------|--------|----|
+| 1 | 0.6857 | 0.6725 | 0.8355 | 0.7452 |
+| 2 | 0.6976 | 0.6906 | 0.8026 | 0.7424 |
+| 3 | 0.7464 | 0.7247 | 0.8889 | 0.7985 |
+| **Mean** | **0.7099** | **0.6959** | **0.8423** | **0.7620** |
+| **Std** | 0.0262 | 0.0217 | 0.0355 | 0.0258 |
+
+### Section 14 / 15 대비 비교
+
+| 실험 | N4 | Norm | Aug | Mean F1 | Std |
+|------|----|------|-----|---------|-----|
+| Sec 14 (iso resample) | ✗ | ✗ | ✗ | 0.7531 | 0.014 |
+| Sec 15 (N4+Norm+Aug) | ✓ | ✓ | ✓ | 0.7193 ⚠️ | 0.008 |
+| **Sec 17 (N4+Norm, no aug)** | ✓ | ✓ | ✗ | **0.7620** | 0.026 |
+
+### 분석
+
+- 증강 제거 후 trivial positive 문제 즉시 해소 → **증강이 Sec 15 실패의 직접 원인임을 확인**
+- F1=0.762은 Sec 14(0.753) 대비 +0.009 향상 → N4 보정·foreground 정규화 자체는 유효한 전처리
+- Recall=0.842로 안정화, Precision=0.696으로 Sec 15(0.569) 대비 크게 회복
+- Fold 3의 F1(0.799)이 Fold 1·2(0.745, 0.742)보다 유독 높아 fold간 편차(std=0.026)가 이전 실험보다 큰 편 — 환자 구성 변동에 따른 분산
 
 ---
 
 ## 종합 비교
 
-| Section | 타겟 | 입력 | 정규화 | 증강 | 손실함수 | Test F1 |
-|---------|------|------|--------|------|----------|---------|
-| **4** | Herniation (6-label) | 전척추 224×224 | ✗ | ✗ | BCE | 0.0000 ❌ |
-| **5** | Herniation (binary) | 디스크 크롭 128×128 | ✗ | ✗ | Focal Loss | 0.0000 ❌ |
-| **6** | **Bulging** (binary) | bbox 크롭 → Resize 128×128 | ✗ | ✗ | BCE | 0.7885 ✅ |
-| **7** | **Bulging** (binary) | bbox 크롭 → Resize 128×128 | Z-score | Flip+Rot | BCE | **0.8186** ✅ |
-| **8** | **Bulging** (binary) | 등방 리샘플 → 중심 크롭 128×128 | ✗ | ✗ | BCE | 0.7805 |
-| **9** | **Bulging** (binary) | 등방 리샘플 → 좌·중·우 3채널 128×128 | ✗ | ✗ | BCE | 0.7980 |
-| **10** | **Bulging** (binary) | 등방 리샘플 → 좌·중·우 3채널 128×128 | Z-score | Flip+Rot | BCE | 0.7800 |
-| **11** | **Bulging** (binary) | CNN(256) + tabular(15) = 271차원 | — | — | RF/GB/LR | 0.7081 |
-| **12** | **Bulging** (binary) | 등방 리샘플 → 중심 크롭 128×128 | ✗ | ✗ | BCE | 0.7313 ⚠️ |
-| **6-1** | **Bulging** (binary) | bbox 크롭 → Resize 128×128 | ✗ | ✗ | BCE | 0.6979 ★ |
+| Section | 모델 | 입력 | 정규화 | 증강 | 평가 방식 | CV/Test F1 |
+|---------|------|------|--------|------|-----------|---------|
+| **4** | SpiderCNN (8.4M) | 전척추 224×224 | ✗ | ✗ | Hold-out | 0.0000 ❌ |
+| **5** | SpiderDiscCNN (8.4M) | 디스크 크롭 128×128 | ✗ | ✗ | Hold-out | 0.0000 ❌ |
+| **6** | SpiderDiscCNN (8.4M) | bbox 크롭 → Resize 128×128 | ✗ | ✗ | Hold-out | 0.7885 |
+| **7** | SpiderDiscCNN (8.4M) | bbox 크롭 → Resize 128×128 | Z-score | Flip+Rot | Hold-out | **0.8186** |
+| **8** | SpiderDiscCNN (8.4M) | 등방 리샘플 → 중심 크롭 128×128 | ✗ | ✗ | Hold-out | 0.7805 |
+| **9** | SpiderDiscCNN3 (8.4M) | 등방 리샘플 → 좌·중·우 3채널 128×128 | ✗ | ✗ | Hold-out | 0.7980 |
+| **10** | SpiderDiscCNN3 (8.4M) | 등방 리샘플 → 좌·중·우 3채널 128×128 | Z-score | Flip+Rot | Hold-out | 0.7800 |
+| **11** | RF/GB/LR | CNN(256) + tabular(15) | — | — | Hold-out | 0.7081 |
+| **12** | SpiderDiscCNN_GAP (19K) | 등방 리샘플 → 중심 크롭 128×128 | ✗ | ✗ | Hold-out | 0.7313 ⚠️ |
+| **13** | SpiderDiscCNN_GAP (19K) | bbox 크롭 → Resize 128×128 | ✗ | ✗ | **3-Fold CV** | 0.7613 ± 0.020 |
+| **14** | SpiderDiscCNN_GAP (19K) | 등방 리샘플(0.75mm) → 중심 크롭 128×128 | ✗ | ✗ | **3-Fold CV** | 0.7531 ± 0.014 |
+| **15** | SpiderDiscCNN_GAP (19K) | N4 → 등방 리샘플 → 중심 크롭 128×128 | Foreground | Affine+Elastic+Noise | **3-Fold CV** | 0.7193 ± 0.008 ⚠️ |
+| **16** | SpiderDiscCNN_GAP_3ch (19K) | 등방 리샘플 → 중심 크롭 128×128, L/C/R 3채널 | ✗ | ✗ | **3-Fold CV** | 0.7665 ± 0.027 |
+| **17** | SpiderDiscCNN_GAP (19K) | N4 → 등방 리샘플 → 중심 크롭 128×128 | Foreground | 없음 | **3-Fold CV** | **0.7620 ± 0.026** |
 
-★ 새 베이스라인 (SpiderDiscCNN_GAP, seed=0)
+> Sec 6-1 (보고서 베이스라인, 단일 hold-out): Val F1=0.8085 / Test F1=0.6979
 
 **핵심 관찰**
 1. Herniation(~5%)은 현재 규모에서 학습 자체가 불가 — 클래스 불균형이 결정적
 2. 디스크 크롭(Section 5→6)은 타겟이 맞으면 효과적인 전처리
-3. Z-score + 증강(Section 7)이 현재까지 최고 성능(Test F1 0.8186)
+3. Z-score + 증강(Section 7)이 단일 hold-out 기준 최고 성능(Test F1 0.8186)
 4. Section 8 등방 리샘플은 정규화·증강 없이는 Section 6 대비 성능 개선 없음 — 데이터셋 대부분이 이미 등방(sh≈sw≈0.625mm)이어서 효과 제한적
-5. Section 9 멀티슬라이스는 Section 8 대비 Test F1 +0.018 향상 — 3D 공간 정보 활용의 효과, 특히 Recall 개선
-6. Section 10 조합(Sec9+Sec7)은 기대와 달리 Test F1 0.7800으로 오히려 하락 — 3채널 입력 복잡도 + 증강의 조합이 현재 데이터 규모(876개)에서 학습 난이도를 높인 것으로 보임
-7. Section 11 CNN+tabular ML 융합은 Test F1 0.7081로 최저 — CNN 피처를 ML 분류기에 넘기는 방식은 end-to-end 학습보다 열세; 환자/스캐너 정형 피처가 bulging 예측에 추가 정보 제공 못함
-8. Section 12 GAP 경량 모델은 Val F1 0.8440(최고)이나 Test F1 0.7313으로 Val-Test 갭이 0.113에 달함 — 모델 과적합이 아닌 Val/Test set 분포 불일치 및 메타 수준의 val 과적합 가능성. **단일 split 기반 평가의 신뢰도 한계를 드러낸 섹션**
+5. Section 9 멀티슬라이스는 Section 8 대비 Test F1 +0.018 향상 — 3D 공간 정보 활용 효과
+6. Section 10 조합(Sec9+Sec7)은 Test F1 0.7800으로 오히려 하락 — 입력 복잡도 증가가 현재 데이터 규모에서 학습 난이도를 높임
+7. Section 11 CNN+tabular 융합은 Test F1 0.7081로 최저 — 정형 피처의 bulging 예측 기여 없음
+8. Section 12 GAP 경량 모델: Val F1 0.8440(최고)이나 Val-Test 갭 0.113 — **단일 split 기반 평가 신뢰도 한계 노출**
+9. Section 13은 3-Fold CV로 단일 split 분산 문제를 해소, 이후 모든 실험의 기본 평가 방식으로 사용
+10. Section 14 등방 리샘플(CV 기반)도 Sec 13 대비 F1 −0.008로 개선 없음 — 단일 hold-out(Sec 8 vs Sec 6)과 동일한 패턴. 데이터셋 자체가 거의 등방이라 리샘플 효과 제한적
+11. Section 15(N4+정규화+증강 복합)는 Recall≈1.0, Precision≈0.57의 Trivial Positive Solution으로 학습 실패 — ElasticTransform+Noise가 학습 신호를 파괴
+12. Section 16(3채널 멀티슬라이스)은 F1=0.767로 Sec 14 대비 +0.013 향상 — L/C/R 공간 정보 활용의 소폭 기여 확인. 단 Fold 3 Recall이 낮아 Recall std=0.055로 fold 간 편차가 큼
+13. Section 17(증강 제거 ablation)에서 trivial positive 즉시 해소. F1=0.762(Sec 14 대비 +0.009)로 N4+정규화의 순수 효과 확인 — 증강 설계의 중요성 재확인
+14. Sec 16·17 모두 Sec 13 베이스라인(0.7613)을 소폭 상회하나 개선폭이 제한적 — 데이터 규모(209명)가 더 복잡한 입력·전처리의 효과를 흡수하기에 부족한 것으로 추정
