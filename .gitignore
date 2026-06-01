@@ -11,3 +11,5 @@ results/
 .DS_Store
 CLAUDE.md
 Machine Learning - Term Project.pdf
+*.pdf
+results.md

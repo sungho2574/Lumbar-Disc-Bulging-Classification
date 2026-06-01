@@ -1,3 +1,5 @@
+https://www.kaggle.com/datasets/zofiaknapiska/spider-lumbar-spine-segmentation-in-mr-images
+
 About Dataset
 This is a large publicly available multi-center lumbar spine MRI dataset with reference segmentations of vertebrae, intervertebral discs (IVDs), and spinal canal. The dataset includes 447 sagittal T1 and T2 MRI series from 218 studies of 218 patients with a history of low back pain. The data was collected from four different hospitals.
 
